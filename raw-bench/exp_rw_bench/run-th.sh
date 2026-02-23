@@ -14,7 +14,7 @@ REQUEST_SIZE="$3"
 
 # Configuration
 FIO_ZONE_START=0
-RESULT_DIR="results_new"
+RESULT_DIR="new_results"
 
 # Create result directory if not present
 mkdir -p "$RESULT_DIR"
@@ -24,7 +24,7 @@ echo "Resetting all zones on $DEVICE_PATH..."
 sudo nvme zns reset-zone "$DEVICE_PATH" -a
 
 # Run experiment from 1 to 14 threads (jobs)
-for JOB in {1..7}; do
+for JOB in 1, 2, 4, 8, 16, 32; do
     JSON_OUTPUT="${RESULT_DIR}/${EXPERIMENT_NAME}_threads_${JOB}.json"
     echo "Running fio with ${JOB} jobs (starting at zone ${FIO_ZONE_START})..."
 
