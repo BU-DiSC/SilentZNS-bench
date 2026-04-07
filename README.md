@@ -48,7 +48,9 @@ Run: `ls $MOSEK_PLATFORM/bin`
 
 Navigate to the FEMU build directory:
 
+```
 cd confznsplusplus/build-femu
+```
 
 Build FEMU (if not already built):
 
@@ -64,7 +66,7 @@ SSH access to VM and host is configured
 
 ## Step 5 — Experiment Configuration
 
-Edit the top section of the script:
+Edit the top section of the script `/raw-bench/run.sh`:
 
 ```
 EXP_ID=2
