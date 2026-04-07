@@ -30,13 +30,14 @@ VM_HOST="localhost"
 
 ### Parameters:
 - EXP_ID: experiment type
-- (0=all, 1=interference, 2=occupancy, 6=allocation)
+  - 0=all, 1=interference, 2=occupancy, 6=allocation
 - SSD_ID: selects SSD configuration (defined in script)
-- DEVICE_PATH: NVMe device inside VM
+- DEVICE_PATH: NVMe device inside VM /dev/nvme0n1
 - HOST_BASE_DIR: root directory containing:
    - raw-bench/
    - confznsplusplus/
 - VM_USER, SSH_PORT: VM access credentials
+   - make sure to set up ssh between the host and the VM
 
 ### Run
 ```
