@@ -17,7 +17,34 @@ If you already cloned without submodules, run:
 git submodule update --init --recursive
 ```
 
-## Step 2 — Build ConfZNS++ / FEMU
+## Step 2 — Install and Configure MOSEK
+
+MOSEK is required for building the allocation components.
+
+### 2.1 Download MOSEK
+
+Download MOSEK from:
+https://www.mosek.com/downloads/
+
+Extract it to a location of your choice, for example: `/path/to/mosek`
+
+### 2.2 Set Environment Variables
+
+Add the following to your shell (or `.bashrc`):
+
+```
+export MOSEK_ROOT="/path/to/mosek"
+export MOSEK_PLATFORM="$MOSEK_ROOT/11.0/tools/platform/linux64x86"
+
+export MOSEKLM_LICENSE_FILE="/path/to/mosek/license/mosek.lic"
+export LD_LIBRARY_PATH="$MOSEK_PLATFORM/bin:$LD_LIBRARY_PATH"
+```
+
+### 2.3 Verify Installation
+
+Run: `ls $MOSEK_PLATFORM/bin`
+
+## Step 3 — Build ConfZNS++ / FEMU
 
 Navigate to the FEMU build directory:
 
@@ -29,13 +56,13 @@ Build FEMU (if not already built):
 ./femu-compile.sh
 ```
 
-## Step 3 — VM Requirements
+## Step 4 — VM Requirements
 
 Ensure:
 
 SSH access to VM and host is configured
 
-## Step 4 — Experiment Configuration
+## Step 5 — Experiment Configuration
 
 Edit the top section of the script:
 
