@@ -3,19 +3,23 @@ set -e  # Exit on any error
 
 # ============================================================
 # USER-CONFIGURABLE SETTINGS
-# Put every path and machine-specific setting here
+# Edit only this section when moving the script to another machine
 # ============================================================
 
 # ----- Experiment selection -----
 EXP_ID=2        # 0: all, 1: interference, 2: occupancy, 3: write-scaling, 4: read-scaling, 5: queue depth, 6: allocation
-SSD_ID=0       # SSD config selector
+SSD_ID=0        # SSD config selector
 PARALLEL_ZONES=8
 
-# ----- Device settings -----
+# ----- Device settings inside the VM -----
 DEVICE_PATH="/dev/nvme0n1"
 
 # ----- Host paths -----
-HOST_BASE_DIR="/home/teona/CIDR"
+# Set this to the root directory that contains both:
+#   1. raw-bench
+#   2. confznsplusplus
+HOST_BASE_DIR="/path/to/CIDR"
+
 HOST_RAW_BENCH="${HOST_BASE_DIR}/raw-bench"
 VM_SCRIPT_PATH="${HOST_BASE_DIR}/confznsplusplus/build-femu"
 VM_SCRIPT="${VM_SCRIPT_PATH}/run-zns-exp.sh"
@@ -33,13 +37,16 @@ RESULT_DIRS=(
 )
 
 # ----- VM / SSH settings -----
+# Set these to match your guest VM setup
 SSH_PORT=8080
-VM_USER="teona"
+VM_USER="your_vm_username"
 VM_HOST="localhost"
 VM_HOME="/home/${VM_USER}"
 VM_RAW_BENCH="${VM_HOME}/raw-bench"
 
 # Optional SSH options for easier reuse
+# For local controlled experiments, StrictHostKeyChecking=no is convenient.
+# Remove it if you want stricter SSH verification.
 SSH_OPTS=(-p "${SSH_PORT}" -o ConnectTimeout=2 -o StrictHostKeyChecking=no)
 RSYNC_SSH="ssh -p ${SSH_PORT} -o StrictHostKeyChecking=no"
 

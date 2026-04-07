@@ -2,7 +2,7 @@
 
 # Raw-Bench Experiment Runner
 
-This repository contains a Bash script that launches a FEMU-based ZNS SSD VM, copies the `raw-bench` experiment code into the VM, builds the required tools, runs the selected experiment, copies the results back to the host, and then shuts down the VM. The workflow is designed to make raw-device experiments reproducible across different SSD configurations and experiment types. :contentReference[oaicite:1]{index=1}
+This repository contains a Bash script that launches a FEMU-based ZNS SSD VM, copies the `raw-bench` experiment code into the VM, builds the required tools, runs the selected experiment, copies the results back to the host, and then shuts down the VM. The workflow is designed to make raw-device experiments reproducible across different SSD configurations and experiment types.
 
 ---
 
