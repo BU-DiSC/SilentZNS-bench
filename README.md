@@ -53,6 +53,7 @@ VM_HOST="localhost"
 ```
 
 ### Parameters:
+```
 EXP_ID: experiment type
 0 = all
 1 = interference
@@ -61,6 +62,7 @@ EXP_ID: experiment type
 SSD_ID: selects SSD configuration (defined in script)
 DEVICE_PATH: NVMe device inside VM
 Example: /dev/nvme0n1
+```
 
 HOST_BASE_DIR: root directory containing:
 
