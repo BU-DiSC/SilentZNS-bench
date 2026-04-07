@@ -1,21 +1,45 @@
 # 🚀 Running the Experiments
 
-## Setup
+## Step 1 — Clone the Repository (with Submodules)
 
-Ensure the following are available:
+This project depends on `confznsplusplus`, which is included as a Git submodule.
 
-- `confznsplusplus/build-femu/run-zns-exp.sh`
-- `raw-bench/` with `run_all.sh`
-- Working FEMU VM with SSH access
-- Required tools in VM (e.g., `gcc`, `libzbd`)
+Clone the repository with:
 
----
+```
+git clone --recurse-submodules <your-repo-url>
+cd SilentZNS-bench
+```
 
-## Configuration
+If you already cloned without submodules, run:
 
-Edit the **top section of the script**:
+```
+git submodule update --init --recursive
+```
 
-```bash
+## Step 2 — Build ConfZNS++ / FEMU
+
+Navigate to the FEMU build directory:
+
+cd confznsplusplus/build-femu
+
+Build FEMU (if not already built):
+
+```
+./femu-compile.sh
+```
+
+## Step 3 — VM Requirements
+
+Ensure:
+
+SSH access to VM and host is configured
+
+## Step 4 — Experiment Configuration
+
+Edit the top section of the script:
+
+```
 EXP_ID=2
 SSD_ID=0
 PARALLEL_ZONES=8
@@ -29,21 +53,33 @@ VM_HOST="localhost"
 ```
 
 ### Parameters:
-- EXP_ID: experiment type
-  - 0=all, 1=interference, 2=occupancy, 6=allocation
-- SSD_ID: selects SSD configuration (defined in script)
-- DEVICE_PATH: NVMe device inside VM /dev/nvme0n1
-- HOST_BASE_DIR: root directory containing:
-   - raw-bench/
-   - confznsplusplus/
-- VM_USER, SSH_PORT: VM access credentials
-   - make sure to set up ssh between the host and the VM
+EXP_ID: experiment type
+0 = all
+1 = interference
+2 = occupancy
+6 = allocation
+SSD_ID: selects SSD configuration (defined in script)
+DEVICE_PATH: NVMe device inside VM
+Example: /dev/nvme0n1
 
-### Run
+HOST_BASE_DIR: root directory containing:
+
 ```
-chmod +x run_vm_experiment.sh
-./run_vm_experiment.sh
+raw-bench/
+confznsplusplus/
 ```
+
+VM_USER, SSH_PORT: VM access credentials
+
+
+## Step 5 — Run Experiments
+
+```
+chmod +x run.sh
+./run.sh
+```
+
+### Results
 
 Results are copied back to:
 
