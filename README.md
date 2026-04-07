@@ -1,25 +1,53 @@
-# SilentZNS-bench
+# 🚀 Running the Experiments
 
-# Raw-Bench Experiment Runner
+## Setup
 
-This repository contains a Bash script that launches a FEMU-based ZNS SSD VM, copies the `raw-bench` experiment code into the VM, builds the required tools, runs the selected experiment, copies the results back to the host, and then shuts down the VM. The workflow is designed to make raw-device experiments reproducible across different SSD configurations and experiment types.
+Ensure the following are available:
+
+- `confznsplusplus/build-femu/run-zns-exp.sh`
+- `raw-bench/` with `run_all.sh`
+- Working FEMU VM with SSH access
+- Required tools in VM (e.g., `gcc`, `libzbd`)
 
 ---
 
-## Overview
+## Configuration
 
-The experiment runner `run.sh` performs the following steps:
+Edit the **top section of the script**:
 
-1. Selects an SSD configuration using `SSD_ID`.
-2. Selects an experiment type using `EXP_ID`.
-3. Starts a FEMU VM with the corresponding SSD geometry and timing parameters.
-4. Waits for SSH access to the VM.
-5. Copies the `raw-bench` directory into the VM.
-6. Compiles experiment binaries inside the VM if needed.
-7. Runs `run_all.sh` inside the VM with the selected parameters.
-8. Copies the generated result files back to the host.
-9. Shuts down the VM.
+```bash
+EXP_ID=2
+SSD_ID=0
+PARALLEL_ZONES=8
+DEVICE_PATH="/dev/nvme0n1"
 
-## Repository Layout
+HOST_BASE_DIR="/path/to/VLDB"
 
-The script assumes a directory layout similar to the following:
+SSH_PORT=8080
+VM_USER="your_vm_username"
+VM_HOST="localhost"
+```
+
+### Parameters:
+- EXP_ID: experiment type
+- (0=all, 1=interference, 2=occupancy, 6=allocation)
+- SSD_ID: selects SSD configuration (defined in script)
+- DEVICE_PATH: NVMe device inside VM
+- HOST_BASE_DIR: root directory containing:
+   - raw-bench/
+   - confznsplusplus/
+- VM_USER, SSH_PORT: VM access credentials
+
+### Run
+```
+chmod +x run_vm_experiment.sh
+./run_vm_experiment.sh
+```
+
+Results are copied back to:
+
+raw-bench/
+├── exp_allocation/new_results/
+├── exp_interference/results/
+├── exp_occupancy/new_results/
+└── exp_rw_bench/new_results/

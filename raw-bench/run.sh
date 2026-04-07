@@ -18,7 +18,7 @@ DEVICE_PATH="/dev/nvme0n1"
 # Set this to the root directory that contains both:
 #   1. raw-bench
 #   2. confznsplusplus
-HOST_BASE_DIR="/path/to/CIDR"
+HOST_BASE_DIR="/path/to/VLDBs"
 
 HOST_RAW_BENCH="${HOST_BASE_DIR}/raw-bench"
 VM_SCRIPT_PATH="${HOST_BASE_DIR}/confznsplusplus/build-femu"
