@@ -30,21 +30,23 @@ gcc -o fill fill.c -lzbd -Wall
 JOBS=(1 2 3 4 5 6 7)
 
 for JOB in "${JOBS[@]}"; do
-
+    sudo nvme zns reset-zone "$DEVICE_PATH" -a
     # Fill the first JOB zones with $PERCENTAGE%
     for ((zone=0; zone<JOB; zone++)); do
         echo "Filling zone $FILL_ZONE_START to ${PERCENTAGE}%"
         ./fill "$DEVICE_PATH" "$REQUEST_SIZE" "$FILL_ZONE_START" "${RESULT_DIR}/${EXPERIMENT_NAME}_fill.txt" "$PERCENTAGE"
         FILL_ZONE_START=$((FILL_ZONE_START + 1))
     done
+    FILL_ZONE_START=0
 
     for ((i=0; i<JOB; i++)); do
         echo "Running finish at LBA offset 0x$(printf '%X' "$FINISH_ZONE_START")..."
         sudo nvme zns finish-zone "$DEVICE_PATH" --start-lba="$FINISH_ZONE_START" &
         FINISH_ZONE_START=$((FINISH_ZONE_START + ZONE_INCREMENT))
     done
+    FINISH_ZONE_START=0
 
-    JSON_OUTPUT="${RESULT_DIR}/${EXPERIMENT_NAME}_finish_${JOB}jobs.json"
+    JSON_OUTPUT="${RESULT_DIR}/${EXPERIMENT_NAME}_${JOB}jobs_finish.json"
 
     echo "Running fio with ${JOB} jobs starting at zone ${FIO_ZONE_START}..."
     sudo fio --name=write \
@@ -64,6 +66,30 @@ for JOB in "${JOBS[@]}"; do
 
     wait  # Wait for background 'finish' commands to complete
 done
+
+sudo nvme zns reset-zone "$DEVICE_PATH" -a
+
+for JOB in "${JOBS[@]}"; do
+
+    JSON_OUTPUT="${RESULT_DIR}/${EXPERIMENT_NAME}_${JOB}jobs.json"
+
+    echo "Running fio with ${JOB} jobs starting at zone 0..."
+    sudo fio --name=write \
+        --filename="$DEVICE_PATH" \
+        --rw=write \
+        --direct=1 \
+        --ioengine=sync \
+        --bs=16K \
+        --size=1z \
+        --offset=0z \
+        --offset_increment=1z \
+        --numjobs="$JOB" \
+        --zonemode=zbd \
+        --group_reporting \
+        --output-format=json \
+        --output="$JSON_OUTPUT"
+done
+
 
 echo "All experiments completed. Fio results saved in ${RESULT_DIR}/"
 

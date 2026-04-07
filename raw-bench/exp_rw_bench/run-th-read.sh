@@ -14,7 +14,7 @@ REQUEST_SIZE="$3"
 
 # Configuration
 FIO_ZONE_START=0
-RESULT_DIR="results"
+RESULT_DIR="new_results"
 
 # Create result directory if not present
 mkdir -p "$RESULT_DIR"
@@ -40,7 +40,7 @@ sudo fio --name=write \
 wait
 
 # Run experiment from 1 to 14 threads (jobs)
-for JOB in {1..7}; do
+for JOB in {1..32}; do
     JSON_OUTPUT="${RESULT_DIR}/${EXPERIMENT_NAME}_threads_${JOB}_read_seq.json"
     echo "Running fio with ${JOB} jobs (starting at zone ${FIO_ZONE_START})..."
 
@@ -49,7 +49,7 @@ for JOB in {1..7}; do
         --rw=read \
         --direct=1 \
         --ioengine=sync \
-        --bs=16K \
+        --bs=4K \
         --size=1z \
         --offset="${FIO_ZONE_START}z" \
         --offset_increment=1z \

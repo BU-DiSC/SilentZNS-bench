@@ -6,16 +6,17 @@
 #include <stdint.h>
 #include <string.h>
 #include <errno.h>
+#include <pthread.h>
 #include <libzbd/zbd.h>
-#include <math.h>
 
 /**
  * Write one request-sized page at zone start.
  */
-ssize_t write_one_page_to_zone(int fd, struct zbd_zone *zone, size_t request_size) {
-    void *buffer;
+static ssize_t write_one_page_to_zone(int fd, const struct zbd_zone *zone, size_t request_size) {
+    void *buffer = NULL;
+
     if (posix_memalign(&buffer, request_size, request_size) != 0) {
-        perror("posix_memalign failed");
+        perror("posix_memalign");
         return -1;
     }
     memset(buffer, 0xAC, request_size);
@@ -32,92 +33,165 @@ ssize_t write_one_page_to_zone(int fd, struct zbd_zone *zone, size_t request_siz
 /**
  * Reset the zone using libzbd.
  */
-int reset_zone(int fd, struct zbd_zone *zone) {
+static int reset_zone(int fd, const struct zbd_zone *zone) {
     int ret = zbd_reset_zones(fd, zone->start, zone->len);
     if (ret < 0) {
-        fprintf(stderr, "❌ Failed to reset zone at 0x%llx: %s\n",
+        fprintf(stderr, "❌ reset failed at 0x%llx: %s\n",
                 (unsigned long long)zone->start, strerror(errno));
     }
     return ret;
 }
 
+/* ---------------------------
+ * Thread worker
+ * --------------------------- */
+
+typedef struct {
+    const char *dev_path;
+    size_t req_size;
+    int zone_idx;
+    struct zbd_zone zone_copy;
+
+    int did_write;
+    int did_reset;
+} zone_task_t;
+
+static void *zone_worker(void *arg) {
+    zone_task_t *t = (zone_task_t *)arg;
+
+    // Open per-thread fd for clean isolation.
+    struct zbd_info info;
+    int fd = zbd_open(t->dev_path, O_WRONLY | O_DIRECT, &info);
+    if (fd < 0) {
+        fprintf(stderr, "❌ [t=%d zone=%d] zbd_open failed: %s\n",
+                t->zone_idx, t->zone_idx, strerror(errno));
+        t->did_write = 0;
+        t->did_reset = 0;
+        return NULL;
+    }
+
+    // Write one page at zone start
+    ssize_t written = write_one_page_to_zone(fd, &t->zone_copy, t->req_size);
+    if (written > 0) {
+        printf("✅ [zone %d] wrote %zd bytes at 0x%llx\n",
+               t->zone_idx, written, (unsigned long long)t->zone_copy.start);
+        t->did_write = 1;
+    } else {
+        printf("❌ [zone %d] write failed at 0x%llx\n",
+               t->zone_idx, (unsigned long long)t->zone_copy.start);
+        t->did_write = 0;
+    }
+
+    // Reset the zone if write succeeded
+    if (t->did_write && reset_zone(fd, &t->zone_copy) == 0) {
+        printf("♻️  [zone %d] reset ok at 0x%llx\n",
+               t->zone_idx, (unsigned long long)t->zone_copy.start);
+        t->did_reset = 1;
+    } else {
+        t->did_reset = 0;
+    }
+
+    zbd_close(fd);
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
-    if (argc != 5) {
-        fprintf(stderr, "Usage: %s <device> <request_size> <result_file> <percentage>\n", argv[0]);
+    if (argc != 4) {
+        fprintf(stderr, "Usage: %s <device> <request_size> <parallel_zones>\n", argv[0]);
+        fprintf(stderr, "Example: %s /dev/nvme0n1 4096 8\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     const char *dev_path = argv[1];
     size_t req_size = strtoull(argv[2], NULL, 10);
-    const char *result_file = argv[3];
-    int pct = atoi(argv[4]);
+    int parallel = atoi(argv[3]);
 
-    if (pct <= 0 || pct > 100) {
-        fprintf(stderr, "❌ Invalid percentage: %d%%\n", pct);
+    if (req_size == 0) {
+        fprintf(stderr, "❌ request_size must be > 0\n");
+        return EXIT_FAILURE;
+    }
+    if (parallel <= 0) {
+        fprintf(stderr, "❌ parallel_zones must be > 0\n");
         return EXIT_FAILURE;
     }
 
+    // List zones once (single fd just for listing)
     struct zbd_info info;
-    int fd = zbd_open(dev_path, O_WRONLY | O_DIRECT, &info);
-    if (fd < 0) {
+    int fd_list = zbd_open(dev_path, O_WRONLY | O_DIRECT, &info);
+    if (fd_list < 0) {
         perror("zbd_open");
         return EXIT_FAILURE;
     }
 
-    struct zbd_zone *zones;
-    unsigned int nr_zones;
-    if (zbd_list_zones(fd, 0, 0, ZBD_RO_ALL, &zones, &nr_zones) < 0) {
+    struct zbd_zone *zones = NULL;
+    unsigned int nr_zones = 0;
+    if (zbd_list_zones(fd_list, 0, 0, ZBD_RO_ALL, &zones, &nr_zones) < 0) {
         perror("zbd_list_zones");
-        zbd_close(fd);
+        zbd_close(fd_list);
         return EXIT_FAILURE;
     }
+    zbd_close(fd_list);
 
-    int zones_to_write = (int)ceil(nr_zones * (pct / 100.0));
-    printf("ℹ️  Writing to first %d of %u zones (%d%%)\n", zones_to_write, nr_zones, pct);
-
-    int *written_zone_indices = calloc(zones_to_write, sizeof(int));
-    if (!written_zone_indices) {
-        perror("calloc failed");
+    if ((unsigned int)parallel > nr_zones) {
+        fprintf(stderr, "❌ parallel_zones=%d but device has only %u zones\n", parallel, nr_zones);
         free(zones);
-        zbd_close(fd);
         return EXIT_FAILURE;
     }
 
-    int written_count = 0;
+    printf("ℹ️  launching exactly %d threads for zones [0..%d]\n", parallel, parallel - 1);
 
-    for (int i = 0; i < zones_to_write; i++) {
-        struct zbd_zone *zone = &zones[i];
+    pthread_t *threads = calloc(parallel, sizeof(pthread_t));
+    zone_task_t *tasks = calloc(parallel, sizeof(zone_task_t));
+    if (!threads || !tasks) {
+        perror("calloc");
+        free(threads);
+        free(tasks);
+        free(zones);
+        return EXIT_FAILURE;
+    }
 
-        if (!zbd_zone_seq(zone)) {
-            printf("⚠️  Skipping non-sequential zone %d\n", i);
+    // Create exactly `parallel` threads: thread i -> zone i
+    for (int i = 0; i < parallel; i++) {
+        struct zbd_zone *z = &zones[i];
+
+        // If you want to *hard fail* on non-seq zones, change this to exit.
+        if (!zbd_zone_seq(z)) {
+            printf("⚠️  zone %d is not sequential; skipping thread creation for it\n", i);
+            tasks[i].did_write = 0;
+            tasks[i].did_reset = 0;
             continue;
         }
 
-        ssize_t written = write_one_page_to_zone(fd, zone, req_size);
-        if (written > 0) {
-            printf("✅ Zone %d at 0x%llx: Wrote %zd bytes\n",
-                   i, (unsigned long long)zone->start, written);
-            written_zone_indices[written_count++] = i;
-        } else {
-            printf("❌ Write failed at zone %d\n", i);
+        tasks[i].dev_path = dev_path;
+        tasks[i].req_size = req_size;
+        tasks[i].zone_idx = i;
+        tasks[i].zone_copy = *z;
+        tasks[i].did_write = 0;
+        tasks[i].did_reset = 0;
+
+        int rc = pthread_create(&threads[i], NULL, zone_worker, &tasks[i]);
+        if (rc != 0) {
+            fprintf(stderr, "❌ pthread_create failed for zone %d: %s\n", i, strerror(rc));
         }
     }
 
-
-    // === RESET STAGE ===
-    printf("🔁 Resetting %d zones...\n", written_count);
-    for (int i = 0; i < written_count; i++) {
-        int idx = written_zone_indices[i];
-        struct zbd_zone *zone = &zones[idx];
-
-        if (reset_zone(fd, zone) == 0) {
-            printf("♻️  Reset zone %d at offset 0x%llx\n", idx, (unsigned long long)zone->start);
+    // Join threads that were actually created
+    int wrote_ok = 0, reset_ok = 0;
+    for (int i = 0; i < parallel; i++) {
+        // If thread wasn't created, pthread_t will be 0 on many platforms,
+        // but that isn't guaranteed. We track by checking if zone was sequential.
+        if (!zbd_zone_seq(&zones[i])) {
+            continue;
         }
+        pthread_join(threads[i], NULL);
+        wrote_ok += tasks[i].did_write;
+        reset_ok += tasks[i].did_reset;
     }
 
-    free(written_zone_indices);
+    printf("✅ done: threads=%d, wrote_ok=%d, reset_ok=%d\n", parallel, wrote_ok, reset_ok);
+
+    free(threads);
+    free(tasks);
     free(zones);
-    zbd_close(fd);
-
     return EXIT_SUCCESS;
 }

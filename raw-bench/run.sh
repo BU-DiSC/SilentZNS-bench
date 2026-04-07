@@ -1,212 +1,594 @@
 #!/bin/bash
 set -e  # Exit on any error
 
-EXP_ID=3 # 0: all, 1: interference, 2: occupancy, 3: write-scaling, 4: read-scaling, 5: queue depth, 6: allocation
-SSD_ID=10 # 0: lazy (size = 128MB), 1: stripe (size = 128MB) 2: full (chunk = 1, size = 128MB), 3: vchunk (chunk = 2, size = 128MB), 4: vchunk (chunk = 8, size = 128MB),
-# 5: lazy (size = 512MB), 6: stripe (size = 256MB) 7: full (chunk = 1, size = 256MB), 8: vchunk (chunk = 2, size = 256MB), 9: vchunk (chunk = 8, size = 256MB),
+# ============================================================
+# USER-CONFIGURABLE SETTINGS
+# Put every path and machine-specific setting here
+# ============================================================
 
+# ----- Experiment selection -----
+EXP_ID=2        # 0: all, 1: interference, 2: occupancy, 3: write-scaling, 4: read-scaling, 5: queue depth, 6: allocation
+SSD_ID=0       # SSD config selector
+PARALLEL_ZONES=8
 
-# ------- adjust this to run new experiments ------
+# ----- Device settings -----
+DEVICE_PATH="/dev/nvme0n1"
 
-# ==========================
-# SSD Config Selector
-# ==========================
+# ----- Host paths -----
+HOST_BASE_DIR="/home/teona/CIDR"
+HOST_RAW_BENCH="${HOST_BASE_DIR}/raw-bench"
+VM_SCRIPT_PATH="${HOST_BASE_DIR}/confznsplusplus/build-femu"
+VM_SCRIPT="${VM_SCRIPT_PATH}/run-zns-exp.sh"
+
+# Experiment log/output base directories on host
+HOST_OCCUPANCY_LOG="${HOST_RAW_BENCH}/exp_occupancy/new_results/finish-log"
+HOST_ALLOCATION_LOG="${HOST_RAW_BENCH}/exp_allocation/new_results/allocation-log"
+
+# Result directories to copy back from VM
+RESULT_DIRS=(
+  "exp_allocation/new_results"
+  "exp_interference/results"
+  "exp_occupancy/new_results"
+  "exp_rw_bench/new_results"
+)
+
+# ----- VM / SSH settings -----
+SSH_PORT=8080
+VM_USER="teona"
+VM_HOST="localhost"
+VM_HOME="/home/${VM_USER}"
+VM_RAW_BENCH="${VM_HOME}/raw-bench"
+
+# Optional SSH options for easier reuse
+SSH_OPTS=(-p "${SSH_PORT}" -o ConnectTimeout=2 -o StrictHostKeyChecking=no)
+RSYNC_SSH="ssh -p ${SSH_PORT} -o StrictHostKeyChecking=no"
+
+# ============================================================
+# SSD CONFIG SELECTOR
+# ============================================================
 set_ssd_config() {
-  zns_channels_per_zone=8
-  zns_ways_per_zone=1
-  REQUEST_SIZE=4096
+  # Default SSD Geometry
+  zns_channels=8
+  zns_ways=2
+  zns_dies_per_chip=1
+  zns_planes_per_die=1
+  zns_block_size_pages=2048
 
-  zns_max_chunks_per_lun=1
-  zns_min_luns=64
-  zns_chunk_size=1
+  # Default SSD Timing
+  zns_page_write_latency=500000
+  zns_page_read_latency=50000
+  zns_channel_transfer_latency=25000
+  zns_block_erasure_latency=5000000
+
+  # Default device size in MB
+  devsz_mb=$((1024*16))
 
   case "$SSD_ID" in
     # ------------------------------------------------------------
-    # 128 MiB zone configs (zsz=134217728, cap=134217728, inc=262144)
+    # 128 MiB zone parallelism = 16
     # ------------------------------------------------------------
     0)
-      # lazy, chunk=1
       zns_vtable_mode=1
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
       zns_zonesize=134217728
       zns_zonecap=134217728
       INCREMENT=262144
+      REQUEST_SIZE=4096
       ;;
     1)
-      # stripe
       zns_vtable_mode=4
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
       zns_zonesize=134217728
       zns_zonecap=134217728
       INCREMENT=262144
+      REQUEST_SIZE=4096
       ;;
     2)
-      # full, chunk=1
       zns_vtable_mode=2
       zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
       zns_zonesize=134217728
       zns_zonecap=134217728
       INCREMENT=262144
+      REQUEST_SIZE=4096
       ;;
     3)
-      # flexible (your "5") with chunk=2, min_luns=128
       zns_vtable_mode=5
       zns_chunk_size=2
-      zns_min_luns=128
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
       zns_zonesize=134217728
       zns_zonecap=134217728
       INCREMENT=262144
+      REQUEST_SIZE=4096
       ;;
     4)
-      # flexible (your "5") with chunk=8, min_luns=32
       zns_vtable_mode=5
-      zns_chunk_size=8
-      zns_min_luns=32
+      zns_chunk_size=4
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
       zns_zonesize=134217728
       zns_zonecap=134217728
       INCREMENT=262144
+      REQUEST_SIZE=4096
       ;;
 
     # ------------------------------------------------------------
-    # 256 MiB zone configs (zsz=268435456, cap=268435456, inc=524288)
-    # Same “shapes” as above, but larger zones
+    # 256 MiB zone parallelism = 16
     # ------------------------------------------------------------
     5)
-      # lazy, chunk=1
       zns_vtable_mode=1
-      zns_zonesize=536870912
-      zns_zonecap=536870912
-      INCREMENT=1048576
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
+      zns_zonesize=268435456
+      zns_zonecap=268435456
+      INCREMENT=524288
+      REQUEST_SIZE=4096
       ;;
     6)
-      # stripe
       zns_vtable_mode=4
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
       zns_zonesize=268435456
       zns_zonecap=268435456
       INCREMENT=524288
+      REQUEST_SIZE=4096
       ;;
     7)
-      # full, chunk=1
       zns_vtable_mode=2
       zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=2
       zns_zonesize=268435456
       zns_zonecap=268435456
       INCREMENT=524288
+      REQUEST_SIZE=4096
       ;;
     8)
-      # flexible with chunk=2, min_luns=128
       zns_vtable_mode=5
       zns_chunk_size=2
-      zns_min_luns=128
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=2
       zns_zonesize=268435456
       zns_zonecap=268435456
       INCREMENT=524288
+      REQUEST_SIZE=4096
       ;;
     9)
-      # flexible with chunk=8, min_luns=32
       zns_vtable_mode=5
-      zns_chunk_size=8
-      zns_min_luns=32
+      zns_chunk_size=4
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=2
       zns_zonesize=268435456
       zns_zonecap=268435456
       INCREMENT=524288
+      REQUEST_SIZE=4096
       ;;
 
     # ------------------------------------------------------------
-    # 64 MiB zone config (zsz=67108864, cap=67108864, inc=131072)
+    # 64 MiB zone parallelism = 8
     # ------------------------------------------------------------
     10)
-      # lazy, chunk=1
       zns_vtable_mode=1
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=1
       zns_zonesize=67108864
       zns_zonecap=67108864
       INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+    11)
+      zns_vtable_mode=2
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=1
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+    12)
+      zns_vtable_mode=5
+      zns_chunk_size=2
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=1
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+    13)
+      zns_vtable_mode=5
+      zns_chunk_size=4
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=1
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+
+    # ------------------------------------------------------------
+    # 128 MiB zone parallelism = 8
+    # ------------------------------------------------------------
+    14)
+      zns_vtable_mode=1
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=1
+      zns_zonesize=134217728
+      zns_zonecap=134217728
+      INCREMENT=262144
+      REQUEST_SIZE=4096
+      ;;
+    15)
+      zns_vtable_mode=2
+      zns_chunk_size=1
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=2
+      zns_zonesize=134217728
+      zns_zonecap=134217728
+      INCREMENT=262144
+      REQUEST_SIZE=4096
+      ;;
+    16)
+      zns_vtable_mode=5
+      zns_chunk_size=2
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=2
+      zns_zonesize=134217728
+      zns_zonecap=134217728
+      INCREMENT=262144
+      REQUEST_SIZE=4096
+      ;;
+    17)
+      zns_vtable_mode=5
+      zns_chunk_size=4
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=2
+      zns_zonesize=134217728
+      zns_zonecap=134217728
+      INCREMENT=262144
+      REQUEST_SIZE=4096
+      ;;
+
+    # ------------------------------------------------------------
+    # 32 MiB zone parallelism = 4
+    # ------------------------------------------------------------
+    18)
+      zns_vtable_mode=1
+      zns_chunk_size=1
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=33554432
+      zns_zonecap=33554432
+      INCREMENT=65536
+      REQUEST_SIZE=4096
+      ;;
+    19)
+      zns_vtable_mode=2
+      zns_chunk_size=1
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=33554432
+      zns_zonecap=33554432
+      INCREMENT=65536
+      REQUEST_SIZE=4096
+      ;;
+    20)
+      zns_vtable_mode=5
+      zns_chunk_size=2
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=33554432
+      zns_zonecap=33554432
+      INCREMENT=65536
+      REQUEST_SIZE=4096
+      ;;
+    21)
+      zns_vtable_mode=5
+      zns_chunk_size=4
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=33554432
+      zns_zonecap=33554432
+      INCREMENT=65536
+      REQUEST_SIZE=4096
+      ;;
+
+    # ------------------------------------------------------------
+    # 64 MiB zone parallelism = 4
+    # ------------------------------------------------------------
+    22)
+      zns_vtable_mode=1
+      zns_chunk_size=1
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+    23)
+      zns_vtable_mode=2
+      zns_chunk_size=1
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=2
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+    24)
+      zns_vtable_mode=5
+      zns_chunk_size=2
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=2
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+    25)
+      zns_vtable_mode=5
+      zns_chunk_size=4
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=2
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
+      ;;
+
+    # ------------------------------------------------------------
+    # ConfZNS++
+    # ------------------------------------------------------------
+    26)
+      zns_channels=4
+      zns_ways=1
+      zns_dies_per_chip=1
+      zns_planes_per_die=1
+      zns_block_size_pages=768
+
+      zns_page_write_latency=700000
+      zns_page_read_latency=60000
+      zns_channel_transfer_latency=25000
+      zns_block_erasure_latency=3500000
+
+      devsz_mb=$((1024*8*12))
+
+      zns_vtable_mode=1
+      zns_chunk_size=1
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=2147483648
+      zns_zonecap=1107296256
+      INCREMENT=4194304
+      REQUEST_SIZE=16384
+      ;;
+
+    27)
+      zns_channels=4
+      zns_ways=1
+      zns_dies_per_chip=1
+      zns_planes_per_die=1
+      zns_block_size_pages=768
+
+      zns_page_write_latency=700000
+      zns_page_read_latency=60000
+      zns_channel_transfer_latency=25000
+      zns_block_erasure_latency=3500000
+
+      devsz_mb=$((1024*8*12))
+
+      zns_vtable_mode=4
+      zns_chunk_size=1
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=2147483648
+      zns_zonecap=1107296256
+      INCREMENT=4194304
+      REQUEST_SIZE=16384
+      ;;
+
+    # Hchunk config P = 16, S = 256
+    28)
+      zns_vtable_mode=2
+      zns_chunk_size=2
+      zns_channels_per_zone=8
+      zns_ways_per_zone=2
+      zns_min_luns=16
+      zns_max_chunks_per_lun=1
+      zns_zonesize=268435456
+      zns_zonecap=268435456
+      INCREMENT=524288
+      REQUEST_SIZE=4096
+      ;;
+
+    # Hchunk config P = 8, S = 128
+    29)
+      zns_vtable_mode=2
+      zns_chunk_size=2
+      zns_channels_per_zone=8
+      zns_ways_per_zone=1
+      zns_min_luns=8
+      zns_max_chunks_per_lun=1
+      zns_zonesize=134217728
+      zns_zonecap=134217728
+      INCREMENT=262144
+      REQUEST_SIZE=4096
+      ;;
+
+    # Hchunk config P = 4, S = 64
+    30)
+      zns_vtable_mode=2
+      zns_chunk_size=2
+      zns_channels_per_zone=4
+      zns_ways_per_zone=1
+      zns_min_luns=4
+      zns_max_chunks_per_lun=1
+      zns_zonesize=67108864
+      zns_zonecap=67108864
+      INCREMENT=131072
+      REQUEST_SIZE=4096
       ;;
 
     *)
       echo "ERROR: Unknown SSD_ID='$SSD_ID'"
-      echo "Valid SSD_IDs: 0-4 (128MiB zones), 5-9 (256MiB zones)"
+      echo "Valid SSD_IDs: 0-30"
       exit 1
       ;;
   esac
 }
 
-# Apply SSD config based on SSD_ID
+# ============================================================
+# INITIALIZATION
+# ============================================================
 set_ssd_config
 
-
-
-# specify experiment config
-PARALLEL_ZONES=32
-
-# ----- following should stay the same --------
-DEVICE_PATH="/dev/nvme0n1"
-
-# Set EXP_NAME depending on whether chunk config is used
 EXP_NAME="vt-${zns_vtable_mode}_chnk-${zns_chunk_size}_maxc-${zns_max_chunks_per_lun}_minl-${zns_min_luns}_zsz-${zns_zonesize}_chnl-${zns_channels_per_zone}_w-${zns_ways_per_zone}"
 
 zns_log_path=""
 zns_log_path_time=""
 
-# Set log path based on EXP_ID
-if [[ "$EXP_ID" -eq 2 ]]; then
-    zns_log_path="/home/teona/CIDR/raw-bench/exp_occupancy/new_results/finish-log"
-    echo "Log path set to: $zns_log_path"
-elif [[ "$EXP_ID" -eq 6 ]]; then
-    zns_log_path_time="/home/teona/CIDR/raw-bench/exp_allocation/new_results/allocation-log"
-    echo "Log path set to: $zns_log_path_time"
-fi
-
-# Paths
-VM_SCRIPT="./run-zns-exp.sh"
-VM_SCRIPT_PATH="/home/teona/CIDR/confznsplusplus/build-femu"
-SSH_PORT=8080
-VM_USER="teona"
-VM_HOME="/home/${VM_USER}"
-VM_RAW_BENCH="${VM_HOME}/raw-bench"
-HOST_RAW_BENCH="/home/teona/CIDR/raw-bench"
-RESULT_DIRS=("exp_allocation/new_results" "exp_interference/results" "exp_occupancy/new_results" "exp_rw_bench/new_results")
+case "$EXP_ID" in
+  2)
+    zns_log_path="${HOST_OCCUPANCY_LOG}"
+    echo "Log path set to: ${zns_log_path}"
+    ;;
+  6)
+    zns_log_path_time="${HOST_ALLOCATION_LOG}"
+    echo "Log path set to: ${zns_log_path_time}"
+    ;;
+esac
 
 echo "Starting FEMU VM (vtable_mode=${zns_vtable_mode})"
 echo "Experiment: EXP_ID=${EXP_ID}, REQUEST_SIZE=${REQUEST_SIZE}, INCREMENT=${INCREMENT}, PARALLEL_ZONES=${PARALLEL_ZONES}"
+echo "Geometry: channels=${zns_channels}, ways=${zns_ways}, dies_per_chip=${zns_dies_per_chip}, planes_per_die=${zns_planes_per_die}, block_size_pages=${zns_block_size_pages}"
+echo "Timing: page_write=${zns_page_write_latency}, page_read=${zns_page_read_latency}, transfer=${zns_channel_transfer_latency}, erase=${zns_block_erasure_latency}"
+echo "Device size: devsz_mb=${devsz_mb}"
 
-# Change directory to actual VM script location
-cd "$VM_SCRIPT_PATH"
+# ============================================================
+# LAUNCH VM
+# ============================================================
+cd "${VM_SCRIPT_PATH}"
 
-# Launch VM with zns_vtable_mode and other args
-"$VM_SCRIPT" "$zns_vtable_mode" "$zns_chunk_size" "$zns_max_chunks_per_lun" "$zns_min_luns" \
-            "$zns_log_path" "$zns_log_path_time" "$zns_zonesize" "$zns_zonecap" \
-            "$zns_channels_per_zone" "$zns_ways_per_zone" &
+"${VM_SCRIPT}" \
+  "${zns_vtable_mode}" \
+  "${zns_chunk_size}" \
+  "${zns_max_chunks_per_lun}" \
+  "${zns_min_luns}" \
+  "${zns_log_path}" \
+  "${zns_log_path_time}" \
+  "${zns_zonesize}" \
+  "${zns_zonecap}" \
+  "${zns_channels_per_zone}" \
+  "${zns_ways_per_zone}" \
+  "${zns_channels}" \
+  "${zns_ways}" \
+  "${zns_dies_per_chip}" \
+  "${zns_planes_per_die}" \
+  "${zns_block_size_pages}" \
+  "${zns_page_write_latency}" \
+  "${zns_page_read_latency}" \
+  "${zns_channel_transfer_latency}" \
+  "${zns_block_erasure_latency}" \
+  "${devsz_mb}" &
 FEMU_PID=$!
 
-# Wait until SSH is ready
+# ============================================================
+# WAIT FOR SSH
+# ============================================================
 echo "Waiting for VM SSH to be reachable..."
-until ssh -p $SSH_PORT -o ConnectTimeout=2 -o StrictHostKeyChecking=no "${VM_USER}@localhost" 'echo VM Ready' &>/dev/null; do
-    sleep 2
+until ssh "${SSH_OPTS[@]}" "${VM_USER}@${VM_HOST}" 'echo VM Ready' &>/dev/null; do
+  sleep 2
 done
 echo "VM SSH is reachable."
 
-# Clean the raw-bench directory inside the guest before copying
+# ============================================================
+# PREPARE VM
+# ============================================================
 echo "Deleting previous raw-bench directory in VM..."
-ssh -p $SSH_PORT -o StrictHostKeyChecking=no "${VM_USER}@localhost" "rm -rf '${VM_RAW_BENCH}'"
+ssh "${SSH_OPTS[@]}" "${VM_USER}@${VM_HOST}" "rm -rf '${VM_RAW_BENCH}'"
 
-# Copy raw-bench to VM, excluding result contents
-# IMPORTANT: This copies your updated .c files into the VM every run.
 echo "Copying raw-bench to VM (fresh source files)..."
-rsync -avz -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" \
+rsync -avz -e "${RSYNC_SSH}" \
   --exclude '*/new_results/*' \
   --exclude '*/results/*' \
-  "$HOST_RAW_BENCH/" \
-  "${VM_USER}@localhost:${VM_RAW_BENCH}/"
+  "${HOST_RAW_BENCH}/" \
+  "${VM_USER}@${VM_HOST}:${VM_RAW_BENCH}/"
 
-# Compile inside VM (so you never run stale binaries)
-# We compile occupancy/fill because you changed it to use pthreads and extra arg.
 echo "Compiling updated C tools inside the VM..."
-ssh -p $SSH_PORT -o StrictHostKeyChecking=no "${VM_USER}@localhost" "
+ssh "${SSH_OPTS[@]}" "${VM_USER}@${VM_HOST}" "
   set -e
   cd '${VM_RAW_BENCH}'
 
-  # Compile occupancy fill tool (updated to use pthreads)
   if [ -f 'exp_allocation/fill.c' ]; then
-    echo '[VM] Building exp_occupancy/fill ...'
+    echo '[VM] Building exp_allocation/fill ...'
     cd exp_allocation
     mkdir -p new_results
     gcc -O2 -o fill fill.c -lzbd -lm -lpthread -Wall
@@ -214,28 +596,33 @@ ssh -p $SSH_PORT -o StrictHostKeyChecking=no "${VM_USER}@localhost" "
   fi
 "
 
-# Run experiment inside VM (pass PARALLEL_ZONES as 6th arg)
+# ============================================================
+# RUN EXPERIMENT
+# ============================================================
 echo "Running run_all.sh inside the VM..."
-ssh -p $SSH_PORT -o StrictHostKeyChecking=no "${VM_USER}@localhost" \
+ssh "${SSH_OPTS[@]}" "${VM_USER}@${VM_HOST}" \
   "cd '${VM_RAW_BENCH}' && bash run_all.sh '${EXP_NAME}' '${DEVICE_PATH}' '${REQUEST_SIZE}' '${EXP_ID}' '${INCREMENT}' '${PARALLEL_ZONES}'"
 
-# Copy result files back to host
+# ============================================================
+# COPY RESULTS BACK
+# ============================================================
 echo "Copying result files back from VM..."
 for dir in "${RESULT_DIRS[@]}"; do
-    LOCAL_RESULT_DIR="${HOST_RAW_BENCH}/${dir}"
-    REMOTE_RESULT_DIR="${VM_RAW_BENCH}/${dir}"
+  LOCAL_RESULT_DIR="${HOST_RAW_BENCH}/${dir}"
+  REMOTE_RESULT_DIR="${VM_RAW_BENCH}/${dir}"
 
-    mkdir -p "${LOCAL_RESULT_DIR}"
+  mkdir -p "${LOCAL_RESULT_DIR}"
 
-    rsync -avz -e "ssh -p $SSH_PORT -o StrictHostKeyChecking=no" \
-      "${VM_USER}@localhost:${REMOTE_RESULT_DIR}/" \
-      "${LOCAL_RESULT_DIR}/"
+  rsync -avz -e "${RSYNC_SSH}" \
+    "${VM_USER}@${VM_HOST}:${REMOTE_RESULT_DIR}/" \
+    "${LOCAL_RESULT_DIR}/"
 done
 
-# Shutdown VM
+# ============================================================
+# SHUT DOWN VM
+# ============================================================
 echo "Shutting down the VM..."
-ssh -p $SSH_PORT -o StrictHostKeyChecking=no "${VM_USER}@localhost" "sudo /sbin/shutdown -h now"
+ssh "${SSH_OPTS[@]}" "${VM_USER}@${VM_HOST}" "sudo /sbin/shutdown -h now"
 
-# Wait for FEMU to finish
-wait $FEMU_PID
+wait "${FEMU_PID}"
 echo "✅ VM shutdown complete. All experiments done."
