@@ -1,4 +1,4 @@
-# 🚀 Running the Experiments
+# Running the Experiments
 
 ## Step 1 — Clone the Repository (with Submodules)
 
@@ -60,9 +60,28 @@ Build FEMU (if not already built):
 
 ## Step 4 — VM Requirements
 
-Ensure:
+Follow the steps below to prepare your virtual machine environment.
 
-SSH access to VM and host is configured
+### 4.1. Create the VM Image  
+Create your VM image by following the official ConfZNS++ setup guide (recommended OS: **Ubuntu 22.04**):  
+https://github.com/BU-DiSC/confznsplusplus/tree/15f52ff88651ed3e8746da7e17f6076d3f4c0bcb?tab=readme-ov-file#installation
+
+### 4.2. Install Required Dependencies  
+Inside the VM, install the required libraries:
+- `libzbd`
+- `libnvme`
+
+### 4.3. Configure the I/O Scheduler  
+Set the NVMe device scheduler to `mq-deadline`:
+```
+echo mq-deadline | sudo tee /sys/block/<nvme-device>/queue/scheduler
+```
+
+### 4.5 Specify the path to the VM in `run-zns-exp.sh`
+
+`OSIMGF=/path/to/femu.qcow2`
+
+Ensure that SSH access is properly configured between the host and the VM. This is required for running experiments and transferring results.
 
 ## Step 5 — Experiment Configuration
 
