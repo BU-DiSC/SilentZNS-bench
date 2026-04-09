@@ -32,7 +32,7 @@ REQUEST_SIZES = ["4K", "8K", "16K", "32K", "64K", "128K"]
 # Paths
 # =========================
 RESULTS_DIR = "../exp_rw_bench/new_results"
-OUTPUT_DIR = "new_results_th_heatmaps"
+OUTPUT_DIR = "plots"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # =========================

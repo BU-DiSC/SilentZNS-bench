@@ -37,7 +37,7 @@ USE_LOG_SCALE_DLWA = True
 # ============================================================
 input_path = "../exp_occupancy/new_results/finish-log"
 
-out_dir = "results_customSSD"
+out_dir = "plots"
 os.makedirs(out_dir, exist_ok=True)
 
 # ============================================================

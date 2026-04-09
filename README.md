@@ -17,6 +17,12 @@ If you already cloned without submodules, run:
 git submodule update --init --recursive
 ```
 
+### Host Requirements
+
+- CPU with support for at least **32 threads**
+- At least **64 GB of memory**
+- It is **strongly recommended** to run experiments on **bare-metal hardware** (not inside a VM) for accurate performance results
+
 ## Step 2 — Install and Configure MOSEK
 
 MOSEK is required for building the allocation components.
@@ -140,3 +146,5 @@ raw-bench/
 ├── exp_occupancy/new_results/
 └── exp_rw_bench/new_results/
 ```
+
+You can generate plots with scripts from `raw-bench/plotting`
