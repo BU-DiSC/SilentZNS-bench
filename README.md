@@ -87,7 +87,7 @@ echo mq-deadline | sudo tee /sys/block/<nvme-device>/queue/scheduler
 
 `OSIMGF=/path/to/femu.qcow2`
 
-Ensure that SSH access is properly configured between the host and the VM. This is required for running experiments and transferring results.
+Ensure that SSH access is configured between the host and the VM. This is required for running experiments and transferring results.
 
 ## Step 5 — Experiment Configuration
 
